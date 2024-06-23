@@ -1,0 +1,156 @@
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#define BLYNK_PRINT Serial
+
+char auth[] = "24bhfLP3WcoCbpCbGsL1zxUUNTkq8iDN";
+char ssid[] = "OPPO A53 Aashish Kumbhar";
+char pass[] = "7249568946";
+
+DHT dht(D3, DHT11); //(sensor pin, sensor type)
+BlynkTimer timer;
+bool pirbutton = 0;
+bool lcdInitialized = false;
+int chartPin = V4; // Define the virtual pin for the Blynk Chart widget
+
+// Define component pins
+#define Buzzer D0
+#define MQ2 A0
+#define trig D4
+#define echo D5
+#define PIR D6
+#define relay1 D7
+#define relay2 D8
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+BLYNK_WRITE(V0) {
+  pirbutton = param.asInt();
+}
+
+void setup() {
+  Serial.begin(9600);
+  Wire.begin(D2, D1); // SDA, SCL
+  lcd.init();
+  lcd.backlight();
+  lcd.clear(); // Clear the LCD screen
+  lcd.setCursor(0, 0);
+  lcd.print("Initializing...");
+  delay(2000); // Give the LCD some time to initialize
+  lcd.clear(); // Clear the LCD screen after initialization
+  lcdInitialized = true; // Set LCD initialized flag
+
+  pinMode(Buzzer, OUTPUT);
+  pinMode(PIR, INPUT);
+  pinMode(trig, OUTPUT);
+  pinMode(echo, INPUT);
+  pinMode(relay1, OUTPUT);
+  pinMode(relay2, OUTPUT);
+  digitalWrite(relay1, HIGH);
+  digitalWrite(relay2, HIGH);
+  
+  Blynk.begin(auth, ssid, pass, "blynk.cloud", 80);
+  dht.begin();
+
+  timer.setInterval(100L, gassensor);
+  timer.setInterval(100L, DHT11sensor);
+  timer.setInterval(100L, pirsensor);
+  timer.setInterval(100L, ultrasonic);
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
+
+void gassensor() {
+  int value = analogRead(MQ2);
+  Serial.println(value);
+  value = map(value, 0, 1024, 0, 100);
+  if (value <= 29) {
+    digitalWrite(Buzzer, LOW);
+  } else if (value > 29) {
+    Blynk.notify("Warning! Gas leak detected");
+    digitalWrite(Buzzer, HIGH);
+  }
+  Blynk.virtualWrite(V7, value);
+}
+
+void DHT11sensor() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  if (isnan(h) || isnan(t)) {
+    
+    return;
+  }
+  Blynk.virtualWrite(V2, t);
+  Blynk.virtualWrite(V3, h);
+}
+
+void pirsensor() {
+  bool value = digitalRead(PIR);
+  Blynk.virtualWrite(chartPin, value); // Send PIR sensor data to Blynk Chart widget
+  
+  Serial.print("PIR State: ");
+  Serial.println(value);
+  
+ 
+  
+  if (pirbutton == 1) {
+    if (value == 1) {
+      WidgetLED LED(V1);
+      LED.off();
+      digitalWrite(Buzzer, LOW);
+      if (lcdInitialized) {
+        lcd.setCursor(0, 1);
+        lcd.print("No Issue        "); // Ensure to clear any previous text
+      }
+    } else if (value == 0) {
+      WidgetLED LED(V1);
+      LED.on();
+      Blynk.notify("Warning! Please check your security system");
+      digitalWrite(Buzzer, HIGH);
+      delay (7000);
+      digitalWrite (Buzzer, LOW);
+      Blynk.email("kumbharaashish451@gmail.com", "ALERT!!", "Motion Detected!");
+      Blynk.logEvent("Warning! Please check your security system");
+      if (lcdInitialized) {
+        lcd.setCursor(0, 1);
+        lcd.print("Alert Someone Det");
+      }
+    }
+  }
+}
+
+void ultrasonic() {
+  digitalWrite(trig, LOW);
+  delayMicroseconds(4);
+  digitalWrite(trig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trig, LOW);
+  long t = pulseIn(echo, HIGH);
+  long cm = t / 29 / 2;
+  Blynk.virtualWrite(V8, cm);
+}
+
+BLYNK_WRITE(V5) {
+ bool RelayOne = param.asInt();
+  if (RelayOne == 1) {
+    digitalWrite(relay1, LOW);
+  } else {
+    digitalWrite(relay1, HIGH);
+  }
+}
+
+BLYNK_WRITE(V6) {
+ bool RelayTwo = param.asInt();
+  if (RelayTwo == 1) {
+    digitalWrite(relay2, LOW);
+  } else {
+    digitalWrite(relay2, HIGH);
+  }
+}
